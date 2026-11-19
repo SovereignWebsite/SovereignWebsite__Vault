@@ -1,0 +1,24 @@
+{
+  "about": "Public keys of the agents that commit to this repository. Every commit is signed with one of these keys (git SSH signature from bundle.sign) and names the session recorded here.",
+  "keys": [
+    {
+      "id": "hub-b-sovereignwebsite",
+      "agent": "hub.b@SovereignWebsite.dinis",
+      "role": "Builds the hub for sovereign websites powered by sgit vaults. A session key: it ends with its session.",
+      "how": "Made by the agent in its own session on 19 November 2026 with sgit pki keygen; public bundle from sgit pki export. Only the public half is here. Commits are signed through tools/sgit-ssh-sign.py, which calls sgit pki sign.",
+      "created": "2026-11-19",
+      "status": "active",
+      "session": "https://claude.ai/code/session_01Kw9UwB7XboTsnbPPWaMr2d",
+      "fingerprint": "sha256:af936bb535837009",
+      "signing_fingerprint": "sha256:5131e886013a6483",
+      "bundle": {
+        "v": 1,
+        "encrypt": "-----BEGIN PUBLIC KEY-----\nMIICIjANBgkqhkiG9w0BAQEFAAOCAg8AMIICCgKCAgEApzyZlIQK51uMdEpvqvKc\ne0NT7t/1RHb5OhQJY0ngaxoK3DM2DnRCg3HVn1KsjMaizT8MiVzASUR9SIB3gdmG\nhYYFWOSc8QUQ1DWKVVul2KXos3UIo5iQC12rTgI5VvdV90Drrfm7165/kM34M9Ss\n7IChg9vXew6VKEwTWiJ/TZP21Q6ONkXQdHU9rt2OmINcV+DCE1zynZgMUs0tnCfE\nNPK4MljOBT7CKPh/5KXLxrtTOcKp3O5nZ61vf14yHLw15/3icelurTIZQhRqxgvE\n0jLaOw5nN2J7WwO9M8Bj+DF4wDck6vCa2/T+6z0NybiT4VTp66FSFH17RoCmXFCg\nOVuVyTwSBuj+qb43RfJs9C1o0qPHdjFpb5+QsErXcpzY+lo8fjbtwJTSs8pIzU9N\nwlxbfJAJeTDmL97oxg03+Qc/AMvIFao4+mhPS2u4lu6xrainstyWwfxS0b11StMA\ntC5oAhqVCh09TsV85cUUWg899cQs8lPtGWVlWD6UE5y50AibWz99GC0Ji1yRq9wv\nHpsp88n/OopCEJD2bE0ugk2BeME6BO8z6zAz2xXIYv8MH3iiZhRjYK+1HqEErrj9\nkHmpfmwdMaxJJp/gH+QkeiP7ukViDRZJ+19uYgN02Bk9NvJUxKSxlg6xlYMSSkXt\n4glPgLrhf58H6QDjvjCQsrcCAwEAAQ==\n-----END PUBLIC KEY-----\n",
+        "sign": "-----BEGIN PUBLIC KEY-----\nMFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEsuNDStXFLGpKlXpvqaTBLM8ypLp8\nm0xX/Hy5dUKTHXD3Bm0maj093U4AlgPUrfkWU0EoE9vOxDoHcVbky3SFWg==\n-----END PUBLIC KEY-----\n",
+        "label": "hub.b@SovereignWebsite.dinis",
+        "fingerprint": "sha256:af936bb535837009",
+        "signing_fingerprint": "sha256:5131e886013a6483"
+      }
+    }
+  ]
+}

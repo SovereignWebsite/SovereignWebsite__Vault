@@ -4,24 +4,82 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Sovereign Website Vault</title>
-<meta name="description" content="Sovereign websites in a repository and an sgit vault.">
+<meta name="description" content="Open a website sealed in an sgit vault, in your own browser. The key never leaves this page.">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; frame-src 'self' about: data:; connect-src 'self'; object-src 'none'; base-uri 'none'">
+<meta name="referrer" content="no-referrer">
 <style>
-:root{--bg:#fbfaf7;--fg:#1d1d1b;--muted:#5d5c57;--accent:#2f6b4f;--line:#e4e1d8}
-@media (prefers-color-scheme:dark){:root{--bg:#141513;--fg:#ecebe6;--muted:#a8a69e;--accent:#7fc3a0;--line:#2c2d29}}
+:root{--bg:#fbfaf7;--fg:#1d1d1b;--muted:#5d5c57;--accent:#2f6b4f;--line:#e4e1d8;--card:#fff;--bad:#a3261b}
+@media (prefers-color-scheme:dark){:root{--bg:#141513;--fg:#ecebe6;--muted:#a8a69e;--accent:#7fc3a0;--line:#2c2d29;--card:#1c1d1a;--bad:#ff8a7a}}
 *{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--fg);font:18px/1.6 system-ui,-apple-system,Segoe UI,sans-serif}
-main{max-width:44rem;margin:0 auto;padding:12vh 1rem 4rem}
+main{max-width:46rem;margin:0 auto;padding:8vh 1rem 4rem}
 .mark{font-size:.8rem;letter-spacing:.12em;text-transform:uppercase;color:var(--accent);font-weight:600}
-h1{font-size:clamp(2rem,6vw,3.2rem);line-height:1.1;margin:.4rem 0 1rem}
+h1{font-size:clamp(2rem,6vw,3.2rem);line-height:1.1;margin:.4rem 0 1rem}h2{font-size:1.2rem;margin:2.2rem 0 .6rem}
 p{color:var(--muted);margin:0 0 1rem}a{color:var(--accent)}
+#drop{border:2px dashed var(--line);border-radius:10px;padding:1.4rem;text-align:center;background:var(--card)}#drop.over{border-color:var(--accent)}
+label{display:block;font-size:.9rem;color:var(--muted);margin:.8rem 0 .3rem}
+input[type=text]{width:100%;font:inherit;font-size:.85rem;padding:.5rem;border:1px solid var(--line);border-radius:6px;background:var(--bg);color:var(--fg)}
+button{font:inherit;font-size:.95rem;padding:.35rem .8rem;border:1px solid var(--accent);border-radius:6px;background:var(--accent);color:var(--bg);cursor:pointer}
+button.quiet,#tabs button[aria-pressed=false]{background:transparent;color:var(--accent)}
+#status{min-height:1.6em;font-size:.95rem;margin-top:.8rem}#status.bad{color:var(--bad)}
+.examples{list-style:none;padding:0;display:grid;gap:1rem;grid-template-columns:repeat(auto-fit,minmax(16rem,1fr))}
+.examples li{border:1px solid var(--line);border-radius:10px;padding:1rem;background:var(--card)}
+.examples img{width:132px;height:132px;background:#fff;border-radius:6px;display:block;margin:.6rem 0}
+.examples h3{margin:0;font-size:1.05rem}.examples p{font-size:.9rem}
+#local{padding-left:1.2rem}#local li{margin:.3rem 0}
+#viewer{position:fixed;inset:0;display:flex;flex-direction:column;background:var(--bg);z-index:9}
+#viewer[hidden]{display:none}body.viewing{overflow:hidden}
+.bar{display:flex;flex-wrap:wrap;align-items:center;gap:.5rem 1rem;padding:.5rem 1rem;border-bottom:1px solid var(--line);font-size:.9rem}
+.bar strong{font-size:1rem}.bar .meta{color:var(--muted);font-size:.8rem}#tabs{display:flex;gap:.4rem;flex-wrap:wrap}.bar .grow{flex:1}
+#frame{flex:1;border:0;width:100%;background:#fff}
 footer{margin-top:3rem;padding-top:1rem;border-top:1px solid var(--line);font-size:.85rem;color:var(--muted)}
+code{font-size:.85em}
 </style>
 </head>
 <body>
 <main>
 <div class="mark">Sovereign Agentic Website</div>
-<h1>Sites you can clone, open and hand on.</h1>
-<p>Every site on the hub lives in two places: a public repository and an sgit vault holding the same files. A vault can be cloned and opened on your own machine, because the sites are static, and handed on to its next owner.</p><p>Each site will have a page here with its owner, the team that built it, its address, its repository and vault, its licence and its versions.</p><p>The hub is being built now, in the open.</p>
-<footer>vault.sovereignwebsite.site · Part of the <a href="https://github.com/SovereignWebsite">SovereignWebsite</a> organisation · Read why: <a href="https://newsroom.sgit.ai/articles/sovereign-agentic-website.html">Sovereign Agentic Website</a></footer>
+<h1>Your website, from a vault.</h1>
+<p>A site sealed in an encrypted sgit vault opens here, in your own browser. You can open it from a link with the key after the #, a QR code, or a vault zip and its key. This page decrypts the vault on your device. The key is never sent anywhere, and the site runs in a sandboxed frame that cannot reach the network.</p>
+
+<div id="drop">
+  <p><strong>Drop a vault zip here</strong>, or <label for="file" style="display:inline;color:var(--accent);cursor:pointer;text-decoration:underline">choose one</label>.</p>
+  <input id="file" type="file" accept=".zip,application/zip" hidden>
+  <label for="key">Read key, or a whole link (a vault key is refused: this page only reads)</label>
+  <input id="key" type="text" autocomplete="off" spellcheck="false" placeholder="sgit_public_read_... or https://vault.sovereignwebsite.site/#zip=...&amp;key=...">
+  <div id="status" role="status" aria-live="polite"></div>
+</div>
+
+<h2>Examples</h2>
+<p>Made-up sites, sealed in vaults for this demo. Their read keys are public on purpose: tap a card or scan its code with a phone.</p>
+<ul class="examples">
+  <li><h3><a href="#zip=examples/orange.zip&amp;key=sgit_public_read_ad36e774dd064a66b85bb9657838b4e580a59096c3fa3869fd7e315004164338">Example Orange Grove</a></h3>
+    <p>Three designs of one site in one vault: a made-up Algarve grower selling oranges wholesale with delivery.</p>
+    <img src="examples/orange-qr.svg" alt="QR code that opens the Example Orange Grove vault">
+    <p><a href="examples/orange.zip" download>Download the vault zip</a></p></li>
+  <li><h3><a href="#zip=examples/event.zip&amp;key=sgit_public_read_27fa6c61496bceb7ebf5b196417d4c802f697dfa83a0ccb7d7b28132b4deea76">Example Community Run</a></h3>
+    <p>A one-page site for a made-up local event.</p>
+    <img src="examples/event-qr.svg" alt="QR code that opens the Example Community Run vault">
+    <p><a href="examples/event.zip" download>Download the vault zip</a></p></li>
+</ul>
+
+<h2>On this device</h2>
+<p id="local-empty">Vaults you open are kept here, in this browser's own storage, until you forget them. None yet.</p>
+<ul id="local"></ul>
+
+<h2>How it works</h2>
+<p>A vault zip is what <code>sgit vault backup</code> writes: the vault's encrypted objects and a small manifest with its id, and no key. With the read key, this page decrypts the newest commit with AES-256-GCM, rebuilds the files, and shows them. A vault with a <code>designs/</code> folder shows each design one tap apart. Nothing is uploaded from the browser.</p>
+
+<footer>vault.sovereignwebsite.site · Part of the <a href="https://github.com/SovereignWebsite">SovereignWebsite</a> organisation · Source: <a href="https://github.com/SovereignWebsite/SovereignWebsite__Vault">SovereignWebsite__Vault</a> · Read why: <a href="https://newsroom.sgit.ai/articles/your-website-from-a-vault.html">Your website from a vault</a> · No cookies, no tracking.</footer>
 </main>
+
+<div id="viewer" hidden>
+  <div class="bar">
+    <span><strong id="viewer-title"></strong> <span class="meta" id="viewer-meta"></span></span>
+    <span id="tabs"></span><span class="grow"></span>
+    <button id="close" type="button" class="quiet">Close</button>
+  </div>
+  <iframe id="frame" title="The site from the vault" sandbox="allow-scripts" referrerpolicy="no-referrer"></iframe>
+</div>
+<script src="open.js"></script>
 </body>
 </html>

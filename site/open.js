@@ -1,0 +1,288 @@
+// Open an sgit vault in the browser: a vault zip (sgit vault backup) and a read key.
+// The key comes from the link after the #, a QR code or a paste; it never leaves this page.
+// Decrypts with WebCrypto (AES-256-GCM, the sgit envelope), keeps the files on this device
+// (IndexedDB), and shows the site in a sandboxed frame that cannot reach the network.
+// No server code, no cookies, no tracking, no third-party scripts. Apache-2.0.
+'use strict';
+
+const $ = (s) => document.querySelector(s);
+const enc = new TextEncoder(), dec = new TextDecoder();
+const DEFLATE_MAGIC = [0x00, 0x73, 0x67, 0x7a, 0x31]; // "\0sgz1": iv + AES-GCM(deflate(plaintext))
+
+// ---------- keys ----------
+function readKeyHex(input) {
+  const k = (input || '').trim();
+  if (/^(sgit_private_vault_|sgit_vk1_)/.test(k)) throw new Error('That is a vault key, which can write. This page only takes a read key.');
+  const m = k.match(/^(?:sgit_public_read_|sgit_private_read_|sgit_rk1_)?([0-9a-f]{64})(?::[a-z0-9]{4,24})?$/i);
+  if (!m) throw new Error('That does not look like an sgit read key.');
+  return m[1].toLowerCase();
+}
+const hexBytes = (h) => new Uint8Array(h.match(/../g).map((x) => parseInt(x, 16)));
+
+// ---------- zip (stored and deflated entries) ----------
+async function inflate(bytes, format) {
+  const s = new Blob([bytes]).stream().pipeThrough(new DecompressionStream(format));
+  return new Uint8Array(await new Response(s).arrayBuffer());
+}
+async function unzip(buf) {
+  const b = new Uint8Array(buf), v = new DataView(buf);
+  let e = b.length - 22;
+  while (e >= 0 && v.getUint32(e, true) !== 0x06054b50) e--;
+  if (e < 0) throw new Error('This is not a zip file.');
+  const count = v.getUint16(e + 10, true);
+  let p = v.getUint32(e + 16, true);
+  const files = new Map();
+  for (let i = 0; i < count; i++) {
+    if (v.getUint32(p, true) !== 0x02014b50) throw new Error('The zip is damaged.');
+    const method = v.getUint16(p + 10, true), csize = v.getUint32(p + 20, true);
+    const nlen = v.getUint16(p + 28, true), xlen = v.getUint16(p + 30, true), clen = v.getUint16(p + 32, true);
+    const local = v.getUint32(p + 42, true);
+    const name = dec.decode(b.subarray(p + 46, p + 46 + nlen));
+    const start = local + 30 + v.getUint16(local + 26, true) + v.getUint16(local + 28, true);
+    const raw = b.subarray(start, start + csize);
+    if (!name.endsWith('/')) files.set(name, method === 8 ? await inflate(raw, 'deflate-raw') : raw.slice());
+    p += 46 + nlen + xlen + clen;
+  }
+  return files;
+}
+
+// ---------- sgit decryption ----------
+async function decryptor(keyHex) {
+  const key = await crypto.subtle.importKey('raw', hexBytes(keyHex), 'AES-GCM', false, ['decrypt']);
+  const gcm = (d) => crypto.subtle.decrypt({ name: 'AES-GCM', iv: d.subarray(0, 12) }, key, d.subarray(12)).then((x) => new Uint8Array(x));
+  return async (data) => {
+    if (DEFLATE_MAGIC.every((x, i) => data[i] === x) && data.length > 17) {
+      try { return await inflate(await gcm(data.subarray(5)), 'deflate'); } catch (_) { /* a v1 object whose iv starts with the magic */ }
+    }
+    return gcm(data);
+  };
+}
+const b64 = (s) => Uint8Array.from(atob(s), (c) => c.charCodeAt(0));
+
+async function openVault(zipBuf, keyHex) {
+  const zip = await unzip(zipBuf);
+  const manifest = zip.get('manifest.json') ? JSON.parse(dec.decode(zip.get('manifest.json'))) : {};
+  const decrypt = await decryptor(keyHex);
+  const obj = async (id) => {
+    const d = zip.get('bare/data/' + id);
+    if (!d) throw new Error('The zip is missing an object of this vault.');
+    return decrypt(d);
+  };
+  const json = async (id) => JSON.parse(dec.decode(await obj(id)));
+  // The newest commit any branch ref points to (named and clone branches alike).
+  let head = null, wrongKey = 0, refs = 0;
+  for (const [name, data] of zip) {
+    if (!name.startsWith('bare/refs/')) continue;
+    refs++;
+    let ref;
+    try { ref = JSON.parse(dec.decode(await decrypt(data))); } catch (_) { wrongKey++; continue; }
+    if (!ref.commit_id) continue;
+    const c = await json(ref.commit_id);
+    if (!head || c.timestamp_ms > head.timestamp_ms) head = c;
+  }
+  if (!refs) throw new Error('This zip holds no sgit vault.');
+  if (!head) throw new Error(wrongKey ? 'This key does not open this vault.' : 'The vault has no commits.');
+  const files = new Map();
+  const meta = async (s) => (s ? dec.decode(await decrypt(b64(s))) : null);
+  async function walk(treeId, prefix) {
+    const t = await json(treeId);
+    for (const en of t.entries || []) {
+      const name = await meta(en.name_enc);
+      if (!name || name.includes('/') || name === '..' || name === '.') continue;
+      if (en.tree_id) await walk(en.tree_id, prefix + name + '/');
+      else if (en.blob_id && !en.large) files.set(prefix + name, { bytes: await obj(en.blob_id), type: await meta(en.content_type_enc) });
+    }
+  }
+  await walk(head.tree_id, '');
+  const message = await meta(head.message_enc).catch(() => null);
+  return { vaultId: manifest.vault_id || 'vault', commit: head, message, files };
+}
+
+// ---------- the site inside ----------
+const TYPES = { html: 'text/html', htm: 'text/html', css: 'text/css', js: 'text/javascript', svg: 'image/svg+xml', png: 'image/png',
+  jpg: 'image/jpeg', jpeg: 'image/jpeg', gif: 'image/gif', webp: 'image/webp', ico: 'image/x-icon', woff2: 'font/woff2', woff: 'font/woff',
+  json: 'application/json', txt: 'text/plain', md: 'text/plain', pdf: 'application/pdf' };
+const typeOf = (path, f) => TYPES[path.split('.').pop().toLowerCase()] || (f && f.type) || 'application/octet-stream';
+
+function resolve(from, ref) {
+  if (!ref || /^([a-z][a-z0-9+.-]*:|#|\/\/)/i.test(ref)) return null;
+  const clean = ref.split('#')[0].split('?')[0];
+  if (!clean) return null;
+  const parts = (clean.startsWith('/') ? [] : from.split('/').slice(0, -1));
+  for (const seg of decodeURI(clean).split('/')) {
+    if (seg === '..') parts.pop(); else if (seg && seg !== '.') parts.push(seg);
+  }
+  return parts.join('/');
+}
+function dataUri(files, path) {
+  const f = files.get(path);
+  if (!f) return null;
+  let s = '';
+  for (let i = 0; i < f.bytes.length; i += 0x8000) s += String.fromCharCode.apply(null, f.bytes.subarray(i, i + 0x8000));
+  return `data:${typeOf(path, f)};base64,${btoa(s)}`;
+}
+function cssInline(files, from, css) {
+  return css.replace(/url\(\s*(['"]?)([^'")]+)\1\s*\)/g, (m, q, u) => {
+    const p = resolve(from, u), d = p && dataUri(files, p);
+    return d ? `url("${d}")` : m;
+  });
+}
+function pages(files) {
+  const html = [...files.keys()].filter((p) => /\.html?$/i.test(p));
+  const designs = [...new Set(html.map((p) => (p.match(/^designs\/([^/]+)\/index\.html?$/i) || [])[1]).filter(Boolean))].sort();
+  if (designs.length) return designs.map((d) => ({ label: 'Design ' + d, path: html.find((p) => p.toLowerCase() === `designs/${d}/index.html`) || `designs/${d}/index.htm` }));
+  const root = html.find((p) => /^index\.html?$/i.test(p)) || html.sort()[0];
+  return root ? [{ label: 'Site', path: root }] : [];
+}
+
+// Builds a self-contained page: styles, images and scripts inlined, links between pages
+// turned into messages to this page. A CSP blocks every network request from inside.
+function render(files, path) {
+  const f = files.get(path);
+  if (!f) return '<p>Page not found in the vault.</p>';
+  const doc = new DOMParser().parseFromString(dec.decode(f.bytes), 'text/html');
+  doc.querySelectorAll('meta[http-equiv]').forEach((m) => m.remove());
+  for (const l of doc.querySelectorAll('link[rel~="stylesheet"][href]')) {
+    const p = resolve(path, l.getAttribute('href')), c = p && files.get(p);
+    const st = doc.createElement('style');
+    if (c) st.textContent = cssInline(files, p, dec.decode(c.bytes));
+    l.replaceWith(st);
+  }
+  for (const s of doc.querySelectorAll('style')) s.textContent = cssInline(files, path, s.textContent);
+  for (const el of doc.querySelectorAll('[style]')) el.setAttribute('style', cssInline(files, path, el.getAttribute('style')));
+  for (const el of doc.querySelectorAll('img[src],source[src],video[src],audio[src],link[rel~="icon"][href],video[poster]')) {
+    for (const a of ['src', 'href', 'poster']) {
+      const p = el.hasAttribute(a) && resolve(path, el.getAttribute(a)), d = p && dataUri(files, p);
+      if (d) el.setAttribute(a, d);
+    }
+    el.removeAttribute('srcset');
+  }
+  for (const s of doc.querySelectorAll('script[src]')) {
+    const p = resolve(path, s.getAttribute('src')), c = p && files.get(p);
+    s.removeAttribute('src');
+    s.textContent = c ? dec.decode(c.bytes) : '';
+  }
+  for (const a of doc.querySelectorAll('a[href]')) {
+    const p = resolve(path, a.getAttribute('href'));
+    if (p && files.has(p)) a.setAttribute('data-vault-page', p);
+  }
+  const csp = doc.createElement('meta');
+  csp.setAttribute('http-equiv', 'Content-Security-Policy');
+  csp.setAttribute('content', "default-src 'none'; img-src data:; media-src data:; font-src data:; style-src 'unsafe-inline'; script-src 'unsafe-inline'");
+  doc.head.prepend(csp);
+  const nav = doc.createElement('script');
+  nav.textContent = "document.addEventListener('click',function(e){var a=e.target.closest&&e.target.closest('a');if(!a)return;var p=a.getAttribute('data-vault-page');if(p){e.preventDefault();parent.postMessage({vaultPage:p},'*');}else if(!(a.getAttribute('href')||'').startsWith('#')){e.preventDefault();}});";
+  doc.body.append(nav);
+  return '<!doctype html>' + doc.documentElement.outerHTML;
+}
+
+// ---------- this device (IndexedDB) ----------
+function db() {
+  return new Promise((ok, no) => {
+    const r = indexedDB.open('sovereign-vault', 1);
+    r.onupgradeneeded = () => r.result.createObjectStore('vaults', { keyPath: 'vaultId' });
+    r.onsuccess = () => ok(r.result); r.onerror = () => no(r.error);
+  });
+}
+async function store(mode, fn) {
+  const d = await db();
+  return new Promise((ok, no) => {
+    const t = d.transaction('vaults', mode), r = fn(t.objectStore('vaults'));
+    t.oncomplete = () => ok(r && r.result); t.onerror = () => no(t.error);
+  });
+}
+const saveLocal = (v) => store('readwrite', (s) => s.put(v)).catch(() => null);
+const listLocal = () => store('readonly', (s) => s.getAll()).catch(() => []);
+const forgetLocal = (id) => store('readwrite', (s) => s.delete(id)).catch(() => null);
+
+// ---------- page ----------
+function titleOf(files, first) {
+  const readme = files.get('README.md');
+  const h = readme && dec.decode(readme.bytes).match(/^#\s+(.+)$/m);
+  if (h) return h[1].trim();
+  const f = first && files.get(first);
+  const t = f && dec.decode(f.bytes).match(/<title>([^<]*)<\/title>/i);
+  return t ? t[1].trim() : 'Vault';
+}
+function status(msg, bad) { const s = $('#status'); s.textContent = msg; s.className = bad ? 'bad' : ''; }
+
+let current = null;
+function show(v) {
+  current = v;
+  const list = pages(v.files);
+  if (!list.length) { status('The vault opened, but it holds no web page.', true); return; }
+  $('#viewer-title').textContent = v.name;
+  $('#viewer-meta').textContent = `vault ${v.vaultId}, commit ${new Date(v.commit.timestamp_ms).toISOString().slice(0, 10)}, ${v.files.size} files`;
+  const tabs = $('#tabs'); tabs.textContent = '';
+  list.forEach((pg, i) => {
+    const b = document.createElement('button');
+    b.textContent = pg.label; b.type = 'button';
+    b.onclick = () => { tabs.querySelectorAll('button').forEach((x) => x.setAttribute('aria-pressed', 'false')); b.setAttribute('aria-pressed', 'true'); go(pg.path); };
+    b.setAttribute('aria-pressed', i === 0 ? 'true' : 'false');
+    tabs.append(b);
+  });
+  $('#viewer').hidden = false; document.body.classList.add('viewing');
+  go(list[0].path);
+}
+function go(path) { $('#frame').srcdoc = render(current.files, path); }
+window.addEventListener('message', (e) => {
+  if (current && e.source === $('#frame').contentWindow && e.data && typeof e.data.vaultPage === 'string' && current.files.has(e.data.vaultPage)) go(e.data.vaultPage);
+});
+
+async function openZip(buf, keyInput) {
+  status('Opening the vault in this browser...');
+  try {
+    const keyHex = readKeyHex(keyInput);
+    const v = await openVault(buf, keyHex);
+    v.name = titleOf(v.files, (pages(v.files)[0] || {}).path);
+    v.opened = Date.now();
+    await saveLocal({ vaultId: v.vaultId, name: v.name, commit: v.commit, opened: v.opened, files: [...v.files].map(([p, f]) => [p, f.bytes, f.type]) });
+    status(`Opened ${v.name}. It is kept on this device until you forget it.`);
+    show(v); refreshLocal();
+  } catch (err) { status(err.message || String(err), true); }
+}
+async function refreshLocal() {
+  const ul = $('#local'), all = (await listLocal()).sort((a, b) => b.opened - a.opened);
+  ul.textContent = '';
+  $('#local-empty').hidden = all.length > 0;
+  for (const r of all) {
+    const li = document.createElement('li');
+    const o = document.createElement('button'); o.type = 'button'; o.textContent = r.name;
+    o.onclick = () => show({ vaultId: r.vaultId, name: r.name, commit: r.commit, files: new Map(r.files.map(([p, b, t]) => [p, { bytes: b, type: t }])) });
+    const f = document.createElement('button'); f.type = 'button'; f.className = 'quiet'; f.textContent = 'Forget';
+    f.onclick = async () => { await forgetLocal(r.vaultId); refreshLocal(); };
+    li.append(o, ' ', f); ul.append(li);
+  }
+}
+
+async function fromFragment() {
+  const h = location.hash.slice(1);
+  if (!h) return;
+  history.replaceState(null, '', location.pathname + location.search); // the key leaves the address bar
+  const q = new URLSearchParams(h), key = q.get('key'), zip = q.get('zip');
+  if (key) $('#key').value = key;
+  if (!zip) { status('Key received. Now choose or drop the vault zip.'); return; }
+  if (!/^examples\/[a-z0-9-]+\.zip$/.test(zip)) { status('Only zips published on this site can be opened from a link.', true); return; }
+  try {
+    const r = await fetch(zip, { credentials: 'omit' });
+    if (!r.ok) throw new Error('Could not fetch ' + zip);
+    await openZip(await r.arrayBuffer(), key);
+  } catch (err) { status(err.message, true); }
+}
+
+function init() {
+  const pick = async (file) => { if (file) openZip(await file.arrayBuffer(), $('#key').value); };
+  $('#file').onchange = (e) => { pick(e.target.files[0]); e.target.value = ''; };
+  const dz = $('#drop');
+  dz.ondragover = (e) => { e.preventDefault(); dz.classList.add('over'); };
+  dz.ondragleave = () => dz.classList.remove('over');
+  dz.ondrop = (e) => { e.preventDefault(); dz.classList.remove('over'); pick(e.dataTransfer.files[0]); };
+  $('#key').addEventListener('change', () => {
+    const v = $('#key').value.trim(), i = v.indexOf('#');
+    if (i >= 0) location.hash = v.slice(i + 1);
+  });
+  $('#close').onclick = () => { $('#viewer').hidden = true; document.body.classList.remove('viewing'); $('#frame').srcdoc = ''; current = null; };
+  window.addEventListener('hashchange', fromFragment);
+  refreshLocal(); fromFragment();
+}
+if (typeof document !== 'undefined') init();
