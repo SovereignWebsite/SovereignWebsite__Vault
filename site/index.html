@@ -33,9 +33,29 @@ button.quiet,#tabs button[aria-pressed=false]{background:transparent;color:var(-
 #frame{flex:1;border:0;width:100%;background:#fff}
 footer{margin-top:3rem;padding-top:1rem;border-top:1px solid var(--line);font-size:.85rem;color:var(--muted)}
 code{font-size:.85em}
+/* The Sovereign Website family bar: the same on every site in the family. */
+.family{font-size:.8rem;border-bottom:1px solid rgba(127,127,127,.25);background:rgba(127,127,127,.06)}
+.family ul{list-style:none;margin:0 auto;padding:.35rem 1rem;display:flex;flex-wrap:wrap;gap:.25rem .9rem;max-width:72rem}
+.family a{color:inherit;opacity:.8;text-decoration:none}
+.family a:hover,.family a:focus-visible{opacity:1;text-decoration:underline}
+.family a[aria-current="true"]{opacity:1;font-weight:600}
+.family .family-sep{margin-left:auto}
+@media (max-width:40rem){.family .family-sep{margin-left:0}}
 </style>
 </head>
 <body>
+<nav class="family" aria-label="The Sovereign Website family">
+  <ul>
+    <li><a href="https://sovereignwebsite.ai/">Sovereign Website</a></li>
+    <li><a href="https://sovereignwebsite.org/">Principles</a></li>
+    <li><a href="https://sovereignwebsite.site/">Hosted</a></li>
+    <li><a href="https://hub.sovereignwebsite.site/">Hub</a></li>
+    <li><a href="https://vault.sovereignwebsite.site/" aria-current="true">Vault</a></li>
+    <li class="family-sep"><a href="https://agenticcells.ai/">AgentiCCells</a></li>
+    <li><a href="https://riskmandate.ai/">RiskMandate</a></li>
+    <li><a href="https://newsroom.sgit.ai/">Newsroom</a></li>
+  </ul>
+</nav>
 <main>
 <div class="mark">Sovereign Agentic Website</div>
 <h1>Your website, from a vault.</h1>
