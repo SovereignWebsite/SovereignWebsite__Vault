@@ -1,27 +1,87 @@
 name: Pages
-# Deploys site/ to GitHub Pages on every push to dev. Seeded by SovereignWebsite__Factory.
+# On every push to dev: build, check, version, deploy, tag. Seeded by SovereignWebsite__Factory, after the
+# AgentiCCells site pipeline. Any failed check stops the run before anything is deployed or tagged.
+# The version is made here from the git tags (major and minor below, set by a person; the patch is the
+# last tag's plus one) and shown on every page from version.json. It is never typed by hand.
 on:
   push:
     branches: [dev]
   workflow_dispatch:
 permissions:
   contents: read
-  pages: write
-  id-token: write
 concurrency:
   group: pages
-  cancel-in-progress: true
+  cancel-in-progress: false
+env:
+  VERSION_BASE: '0.1'
+defaults:
+  run:
+    shell: bash
 jobs:
-  deploy:
+  build:
     runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - id: version
+        name: Work out the next version from the tags
+        run: |
+          last=$(git tag --list "v${VERSION_BASE}.*" | sed "s/^v${VERSION_BASE}\.//" | grep -E '^[0-9]+$' | sort -n | tail -1 || true)
+          if [ -z "$last" ]; then next=0; else next=$((last + 1)); fi
+          echo "version=v${VERSION_BASE}.${next}" >> "$GITHUB_OUTPUT"
+          echo "Version: v${VERSION_BASE}.${next}" | tee -a "$GITHUB_STEP_SUMMARY"
+      - name: Build (version.json and the version chip)
+        run: node .github/ci/build.mjs
+        env:
+          SITE_VERSION: ${{ steps.version.outputs.version }}
+      - name: Link previews (Open Graph tags and the share card)
+        run: node .github/ci/share-check.mjs _site
+      - name: Links, em dashes, family bar and leak scan
+        run: node .github/ci/quality.mjs _site
+        env:
+          FAMILY: bar   # SovereignWebsite's own site: the family bar, not the customer credit
+          FAMILY_DEMO: gate/index.html   # the gated-site demo stands in for a customer's page
+      - name: HTML validity
+        run: npx --yes html-validate@8.24.0 --config .github/ci/htmlvalidate.json "_site/**/*.html"   # 8.24.0 has no --preset option
+      - name: Accessibility (axe-core)
+        run: |
+          npm install --no-save --no-audit --no-fund playwright@1.49.1 @axe-core/playwright@4.10.1
+          npx playwright install --with-deps chromium
+          node .github/ci/axe.mjs _site
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/configure-pages@v5
-      - uses: actions/upload-pages-artifact@v3
-        with:
-          path: site
       - id: deployment
         uses: actions/deploy-pages@v4
+  tag:
+    needs: [build, deploy]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Tag the released commit
+        env:
+          VERSION: ${{ needs.build.outputs.version }}
+        run: |
+          git tag "$VERSION" "$GITHUB_SHA"
+          git push origin "$VERSION"
+          echo "Released and tagged $VERSION" >> "$GITHUB_STEP_SUMMARY"

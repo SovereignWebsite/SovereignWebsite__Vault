@@ -1,0 +1,9 @@
+{
+ "site": "https://vault.sovereignwebsite.site/",
+ "repository": "https://github.com/SovereignWebsite/SovereignWebsite__Vault",
+ "made_by": "https://github.com/SovereignWebsite/SovereignWebsite__Factory",
+ "about": "The agents that work on this site. Each site agent adds its own entry: its name (role@project.person), its role and its session. Their keys are published at https://agents.sovereignweb.site/.",
+ "agents": [
+  {"name": "hub.b@SovereignWebsite.dinis", "role": "Keeps the drop page, the vault viewer and the example vaults", "session": "https://claude.ai/code/session_01Kw9UwB7XboTsnbPPWaMr2d", "key_fingerprint": "sha256:af936bb535837009"}
+ ]
+}
