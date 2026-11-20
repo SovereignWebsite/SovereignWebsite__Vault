@@ -3,6 +3,7 @@
 // Seeded by SovereignWebsite__Factory. No dependencies (HTML validity and axe run as their own steps).
 import { readFileSync, readdirSync, existsSync, statSync, appendFileSync } from 'node:fs';
 import { join, relative, dirname, posix } from 'node:path';
+import { inflateRawSync } from 'node:zlib';
 const dir = process.argv[2] || '_site';
 const host = existsSync(join(dir, 'CNAME')) ? readFileSync(join(dir, 'CNAME'), 'utf8').trim() : '';
 const files = []; const walk = (d) => { for (const e of readdirSync(d, { withFileTypes: true })) { const p = join(d, e.name); e.isDirectory() ? walk(p) : files.push(p); } }; walk(dir);
@@ -48,18 +49,70 @@ for (const p of pages) {
 }
 add('No em dashes', dash);
 
-// 4. A customer site carries no family strip above its header: only the top-right pop-up.
-// One of SovereignWebsite's own sites (FAMILY=bar in the workflow) carries the family bar on every page instead.
-const own = process.env.FAMILY === 'bar';
-// FAMILY_DEMO lists pages (relative to the site) that stand in for a customer's page, so carry neither.
-const demo = (process.env.FAMILY_DEMO || '').split(/\s+/).filter(Boolean);
-const strip = pages.filter((p) => !demo.includes(relative(dir, p).split('\\').join('/')) && /<nav class="family"/.test(readFileSync(p, 'utf8')) !== own).map((p) => own ? `${relative(dir, p)}: no family bar (use build/family-bar.mjs)` : `${relative(dir, p)}: the family strip (use build/family-bar.mjs --credit)`);
-add(own ? 'Family bar on every page' : 'No family strip', strip);
+// 4. A customer site carries no family strip above its header: only the top-right pop-up. The organisation's
+//    own sites (SWS_OWN_SITE=1, set in their pages.yml) keep the family bar.
+const strip = process.env.SWS_OWN_SITE === '1' ? [] : pages.filter((p) => /<nav class="family"/.test(readFileSync(p, 'utf8'))).map((p) => `${relative(dir, p)}: the family strip (use build/family-bar.mjs --credit)`);
+add('No family strip', strip);
 
 // 5. Leak scan: no private key, token or secret in any published file.
-const LEAK = [/-----BEGIN [A-Z ]*PRIVATE KEY-----/, /\bgh[pousr]_[A-Za-z0-9]{30,}/, /\bgithub_pat_[A-Za-z0-9_]{40,}/, /\bAKIA[0-9A-Z]{16}\b/, /\bsk-[A-Za-z0-9_-]{32,}/, /\bxox[abpr]-[A-Za-z0-9-]{20,}/, /\bAIza[0-9A-Za-z_-]{35}\b/];
+// The same shapes as the Factory's build/leak-scan.mjs (SHAPES and the bare sgit vault key), kept in step by its tests.
+const DASHES = '-{5}';
+const LEAK = [
+  new RegExp(`${DASHES}BEGIN [A-Z0-9 ]*PRIVATE KEY( BLOCK)?${DASHES}`),
+  /\b(?:AKIA|ASIA|AGPA|AIDA|AROA|AIPA|ANPA|ANVA)[0-9A-Z]{16}\b/,
+  /aws_?secret_?(?:access_?)?key\s*["']?\s*[:=]\s*["']?[A-Za-z0-9\/+]{40}(?![A-Za-z0-9\/+])/i,
+  /\bgh[pousr]_[A-Za-z0-9]{36,}/,
+  /\bgithub_pat_[A-Za-z0-9_]{22,}/,
+  /\bsgit_(?:private_vault|private_read|vk1|rk1)_[A-Za-z0-9:]{8,}/,
+  /\beyJ[A-Za-z0-9_-]{8,}\.eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}/,
+  /\bya29\.[A-Za-z0-9_-]{20,}/,
+  /\bAIza[0-9A-Za-z_-]{35}\b/,
+  /\bxox[abprs]-[A-Za-z0-9-]{10,}/,
+  /\bsk-(?:ant-)?[A-Za-z0-9_-]{20,}/,
+];
+// A bare sgit vault key, {passphrase}:{vault_id}: the passphrase side mixes letters and digits and is not pure hex.
+const VAULT_PAIR = /(?<![A-Za-z0-9_\/.-])([a-z0-9]{16,64}):([a-z0-9]{4,24})(?![A-Za-z0-9_\/.-])/g;
+const vaultPair = (s) => { for (const m of s.matchAll(VAULT_PAIR)) { const p = m[1]; if (/[a-z]/.test(p) && /[0-9]/.test(p) && !/^[0-9a-f]+$/.test(p)) return true; } return false; };
 const leaks = [];
-for (const f of files) { if (statSync(f).size > 5e6) continue; const s = readFileSync(f).toString('latin1'); for (const re of LEAK) if (re.test(s)) leaks.push(`${relative(dir, f)}: matches ${re.source.slice(0, 24)}`); }
+// A zip (found by its content, whatever its name) is opened and every entry is scanned: a sealed vault's entries are
+// ciphertext and pass, a plain zip with a key inside does not. A zip that cannot be read fails (security.b, reviews 004).
+const MAX_ENTRY = 200 * 1024 * 1024;
+function zipEntries(b) {
+  let e = -1; for (let i = b.length - 22; i >= Math.max(0, b.length - 65558); i--) if (b.readUInt32LE(i) === 0x06054b50) { e = i; break; }
+  if (e < 0) throw new Error('no end of central directory');
+  const n = b.readUInt16LE(e + 10); let p = b.readUInt32LE(e + 16); const out = [];
+  for (let k = 0; k < n; k++) {
+    if (b.readUInt32LE(p) !== 0x02014b50) throw new Error('damaged central directory');
+    const method = b.readUInt16LE(p + 10), csize = b.readUInt32LE(p + 20), nlen = b.readUInt16LE(p + 28), xlen = b.readUInt16LE(p + 30), clen = b.readUInt16LE(p + 32), local = b.readUInt32LE(p + 42);
+    const name = b.subarray(p + 46, p + 46 + nlen).toString('utf8');
+    const start = local + 30 + b.readUInt16LE(local + 26) + b.readUInt16LE(local + 28); const raw = b.subarray(start, start + csize);
+    if (!name.endsWith('/')) { if (method === 0) out.push([name, raw]); else if (method === 8) out.push([name, inflateRawSync(raw, { maxOutputLength: MAX_ENTRY })]); else throw new Error(`${name}: compression method ${method}`); }
+    p += 46 + nlen + xlen + clen;
+  }
+  return out;
+}
+const isZip = (b) => b.length >= 22 && (b.readUInt32LE(0) === 0x04034b50 || b.subarray(Math.max(0, b.length - 65558)).includes(Buffer.from([0x50, 0x4b, 0x05, 0x06])));
+// Large files are scanned in 4 MB pieces that overlap by 8 KB, so a secret across a boundary is still found.
+const scan = (label, buf) => { const step = 4 * 1024 * 1024, lap = 8192;
+  for (let o = 0; o < buf.length; o += step) { const s = buf.subarray(o, Math.min(buf.length, o + step + lap)).toString('latin1'); for (const re of LEAK) if (re.test(s)) leaks.push(`${label}: matches ${re.source.slice(0, 24)}`); if (vaultPair(s)) leaks.push(`${label}: an sgit vault key shape (passphrase:vault_id)`); } };
+// A vault (any zip with a manifest.json) must hold only ciphertext: each entry but manifest.json over 1 KB must look
+// random (more than 7.5 bits of entropy per byte), so a plaintext letter inside it fails even with no secret in it.
+// Entropy cannot tell an unencrypted JPEG or PDF from ciphertext: the sealing tool is the real control here.
+const entropy = (b) => { const c = new Array(256).fill(0); for (const x of b) c[x]++; let h = 0; for (const n of c) if (n) { const p = n / b.length; h -= p * Math.log2(p); } return h; };
+for (const f of files) {
+  const at = relative(dir, f).split('\\').join('/'); const b = readFileSync(f);
+  if (isZip(b) || at.endsWith('.zip')) {
+    try {
+      const entries = zipEntries(b); const vault = entries.some(([name]) => name === 'manifest.json');
+      for (const [name, data] of entries) {
+        scan(`${at}!${name}`, data);
+        if (vault && name !== 'manifest.json' && data.length > 1024 && entropy(data) <= 7.5) leaks.push(`${at}!${name}: not ciphertext (${entropy(data).toFixed(2)} bits per byte): a sealed vault holds only encrypted objects`);
+      }
+    } catch (e) { leaks.push(`${at}: ${at.endsWith('.zip') ? 'named .zip' : 'looks like a zip (a zip header or end record was found)'} but is not a readable zip (${e.message})`); }
+    continue;
+  }
+  scan(at, b);
+}
 add('Leak scan', leaks);
 
 const failed = results.filter((r) => r.errors.length);

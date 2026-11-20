@@ -1,27 +1,106 @@
 name: Pages
-# Deploys site/ to GitHub Pages on every push to dev. Seeded by SovereignWebsite__Factory.
+# On every push to dev: build, check, version, deploy, tag. Seeded by SovereignWebsite__Factory, after the
+# AgentiCCells site pipeline. Any failed check stops the run before anything is deployed or tagged.
+# Agent sites only: each run (and once a day) also copies the agent's entry from the Factory's team/keys.json
+# (the root that check-signatures trusts) into site/key.json, so the published key is never written by hand.
+# The version is made here from the git tags (major and minor below, set by a person; the patch is the
+# last tag's plus one) and shown on every page from version.json. It is never typed by hand.
 on:
   push:
     branches: [dev]
   workflow_dispatch:
+  schedule:
+    - cron: '41 5 * * *'
 permissions:
   contents: read
-  pages: write
-  id-token: write
 concurrency:
   group: pages
-  cancel-in-progress: true
+  cancel-in-progress: false
+env:
+  VERSION_BASE: '0.1'
+defaults:
+  run:
+    shell: bash
 jobs:
-  deploy:
+  build:
     runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - id: version
+        name: Work out the next version from the tags
+        run: |
+          last=$(git tag --list "v${VERSION_BASE}.*" | sed "s/^v${VERSION_BASE}\.//" | grep -E '^[0-9]+$' | sort -n | tail -1 || true)
+          if [ -z "$last" ]; then next=0; elif [ "$GITHUB_EVENT_NAME" = schedule ]; then next=$last; else next=$((last + 1)); fi
+          echo "version=v${VERSION_BASE}.${next}" >> "$GITHUB_OUTPUT"
+          echo "Version: v${VERSION_BASE}.${next}" | tee -a "$GITHUB_STEP_SUMMARY"
+      - name: The agent's key, from the Factory's team/keys.json
+        env:
+          AGENT: 'hub.b@SovereignWebsite.dinis'
+        run: |
+          curl -fsS https://raw.githubusercontent.com/SovereignWebsite/SovereignWebsite__Factory/dev/team/keys.json -o keys.json
+          node -e '
+            const ks = require("./keys.json").keys.filter((k) => k.agent === process.env.AGENT && k.status === "active");
+            const out = { agent: process.env.AGENT, source: "https://github.com/SovereignWebsite/SovereignWebsite__Factory/blob/dev/team/keys.json", copied: new Date().toISOString(),
+              keys: ks.map((k) => ({ fingerprint: k.fingerprint, signing_fingerprint: k.signing_fingerprint, session: k.session, sign: k.bundle.sign, encrypt: k.bundle.encrypt })) };
+            require("fs").writeFileSync("site/key.json", JSON.stringify(out, null, 2) + "\n");
+            console.log(ks.length ? `published ${ks.length} key(s) for ${process.env.AGENT}` : `no active key in team/keys.json for ${process.env.AGENT}`);'
+      - name: Build (version.json and the version chip)
+        run: node .github/ci/build.mjs
+        env:
+          SITE_VERSION: ${{ steps.version.outputs.version }}
+      - name: Link previews (Open Graph tags and the share card)
+        run: node .github/ci/share-check.mjs _site
+      - name: Links, em dashes and leak scan (an organisation site keeps its family bar)
+        run: node .github/ci/quality.mjs _site
+        env:
+          # This template makes the organisation's own sites (the agents' sites), which keep the Sovereign Website
+          # family bar across the top. Customer sites must not have it (Dinis, 20 November 2026: "this is not a
+          # website about us"), so quality.mjs fails a customer page with <nav class="family">; this setting, set
+          # only here and never in a customer site's workflow, turns that one check off. Nothing else changes.
+          SWS_OWN_SITE: '1'
+      - name: HTML validity
+        run: npx --yes html-validate@8.24.0 --config .github/ci/htmlvalidate.json "_site/**/*.html"
+      - name: Accessibility (axe-core)
+        run: |
+          npm install --no-save --no-audit --no-fund playwright@1.49.1 @axe-core/playwright@4.10.1
+          npx playwright install --with-deps chromium
+          node .github/ci/axe.mjs _site
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/configure-pages@v5
-      - uses: actions/upload-pages-artifact@v3
-        with:
-          path: site
       - id: deployment
         uses: actions/deploy-pages@v4
+  tag:
+    needs: [build, deploy]
+    if: github.event_name != 'schedule'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Tag the released commit
+        env:
+          VERSION: ${{ needs.build.outputs.version }}
+        run: |
+          git tag "$VERSION" "$GITHUB_SHA"
+          git push origin "$VERSION"
+          echo "Released and tagged $VERSION" >> "$GITHUB_STEP_SUMMARY"
