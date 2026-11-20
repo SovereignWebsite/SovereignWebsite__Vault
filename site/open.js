@@ -262,7 +262,7 @@ async function fromFragment() {
   const q = new URLSearchParams(h), key = q.get('key'), zip = q.get('zip');
   if (key) $('#key').value = key;
   if (!zip) { status('Key received. Now choose or drop the vault zip.'); return; }
-  if (!/^examples\/[a-z0-9-]+\.zip$/.test(zip)) { status('Only zips published on this site can be opened from a link.', true); return; }
+  if (!/^(examples|private)\/[a-z0-9-]+\.zip$/.test(zip)) { status('Only zips published on this site can be opened from a link.', true); return; }
   try {
     const r = await fetch(zip, { credentials: 'omit' });
     if (!r.ok) throw new Error('Could not fetch ' + zip);
@@ -270,16 +270,45 @@ async function fromFragment() {
   } catch (err) { status(err.message, true); }
 }
 
+// A link pasted or read from a QR code: only this site's own links are followed.
+function useLink(text) {
+  const v = (text || '').trim(), i = v.indexOf('#');
+  if (i < 0) return false;
+  const base = v.slice(0, i);
+  if (base && base.replace(/\/$/, '') !== location.origin && !base.startsWith(location.origin + '/')) {
+    status('That link is not for this site, so it was not opened.', true); return true;
+  }
+  location.hash = v.slice(i + 1);
+  return true;
+}
+// QR codes in an image: read in the browser with the built-in BarcodeDetector, where the browser has one.
+async function readQr(file) {
+  if (!('BarcodeDetector' in window)) { status('This browser cannot read a QR code from an image. Scan it with your phone camera, or paste the link.', true); return; }
+  try {
+    const codes = await new BarcodeDetector({ formats: ['qr_code'] }).detect(await createImageBitmap(file));
+    if (!codes.length || !useLink(codes[0].rawValue)) status('No vault link found in that image.', true);
+  } catch (err) { status('Could not read that image: ' + (err.message || err), true); }
+}
+
 function init() {
-  const pick = async (file) => { if (file) openZip(await file.arrayBuffer(), $('#key').value); };
+  const pick = async (file) => {
+    if (!file) return;
+    if (/^image\//.test(file.type)) return readQr(file);
+    openZip(await file.arrayBuffer(), $('#key').value);
+  };
   $('#file').onchange = (e) => { pick(e.target.files[0]); e.target.value = ''; };
   const dz = $('#drop');
   dz.ondragover = (e) => { e.preventDefault(); dz.classList.add('over'); };
   dz.ondragleave = () => dz.classList.remove('over');
-  dz.ondrop = (e) => { e.preventDefault(); dz.classList.remove('over'); pick(e.dataTransfer.files[0]); };
-  $('#key').addEventListener('change', () => {
-    const v = $('#key').value.trim(), i = v.indexOf('#');
-    if (i >= 0) location.hash = v.slice(i + 1);
+  dz.ondrop = (e) => {
+    e.preventDefault(); dz.classList.remove('over');
+    if (e.dataTransfer.files[0]) pick(e.dataTransfer.files[0]); else useLink(e.dataTransfer.getData('text/plain'));
+  };
+  $('#key').addEventListener('change', () => useLink($('#key').value));
+  document.addEventListener('paste', (e) => {
+    const f = [...(e.clipboardData && e.clipboardData.files || [])][0];
+    if (f) { e.preventDefault(); pick(f); return; }
+    if (e.target !== $('#key') && useLink(e.clipboardData && e.clipboardData.getData('text'))) e.preventDefault();
   });
   $('#close').onclick = () => { $('#viewer').hidden = true; document.body.classList.remove('viewing'); $('#frame').srcdoc = ''; current = null; };
   window.addEventListener('hashchange', fromFragment);

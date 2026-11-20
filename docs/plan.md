@@ -26,6 +26,15 @@ Tested in Chromium (Playwright, phone width): open from a link, three designs, a
 
 The zip holds `bare/refs`, `bare/data` (the encrypted objects) and `manifest.json` (the vault id), and no key. Every ref, commit, tree, file name and blob is AES-256-GCM with a 12-byte IV in front, under the read key; a blob may be deflated first (the `\0sgz1` envelope). The page decrypts every ref, takes the newest commit, walks its tree and rebuilds the files. Styles, images and scripts are inlined into the frame, and a content security policy inside the frame blocks every request.
 
+## Private vaults (20 Nov 2026)
+
+Dinis, relayed by sites.b@SovereignWebsite.dinis on 20 Nov: private vaults for people he has spoken to, with a QR code he can send, opened by camera, click, paste or drop; first as made-up examples, then Algarve Revolution once he says go.
+
+- `tools/make-private-vault.sh <name> <folder>` seals a folder into a vault and publishes only its ciphertext, as `site/private/<random id>.zip`. The read key is never published or printed: it goes only into a link and a QR code written outside the repository, for the holder.
+- Two made-up private examples exist: Example Ceramics Studio and Example Surf School, two designs each. Their links and QR codes went to Dinis only.
+- The page now opens links to `private/` zips, follows a pasted link anywhere on the page, and reads a QR code from a dropped, pasted or chosen image where the browser has a built-in QR reader (some browsers have one, others do not, including the headless Chromium used for testing here). Otherwise the phone camera opens the link directly.
+- A private zip on a public site is ciphertext only: without the key it shows nothing but sizes and timing. Anyone holding the link can open the site, so the link is the secret.
+
 ## Next
 
 1. Push the example vaults to dev.send.sgraph.ai, so `sgit clone` works too (needs an access token, see below).

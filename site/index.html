@@ -59,11 +59,11 @@ code{font-size:.85em}
 <main>
 <div class="mark">Sovereign Agentic Website</div>
 <h1>Your website, from a vault.</h1>
-<p>A site sealed in an encrypted sgit vault opens here, in your own browser. You can open it from a link with the key after the #, a QR code, or a vault zip and its key. This page decrypts the vault on your device. The key is never sent anywhere, and the site runs in a sandboxed frame that cannot reach the network.</p>
+<p>A site sealed in an encrypted sgit vault opens here, in your own browser. You can open it from a link with the key after the #, a QR code (scanned with your phone camera, or dropped here as an image), or a vault zip and its key. This page decrypts the vault on your device. The key is never sent anywhere, and the site runs in a sandboxed frame that cannot reach the network.</p>
 
 <div id="drop">
-  <p><strong>Drop a vault zip here</strong>, or <label for="file" style="display:inline;color:var(--accent);cursor:pointer;text-decoration:underline">choose one</label>.</p>
-  <input id="file" type="file" accept=".zip,application/zip" hidden>
+  <p><strong>Drop a vault zip or a QR code image here</strong>, paste a link anywhere on this page, or <label for="file" style="display:inline;color:var(--accent);cursor:pointer;text-decoration:underline">choose one</label>.</p>
+  <input id="file" type="file" accept=".zip,application/zip,image/*" hidden>
   <label for="key">Read key, or a whole link (a vault key is refused: this page only reads)</label>
   <input id="key" type="text" autocomplete="off" spellcheck="false" placeholder="sgit_public_read_... or https://vault.sovereignwebsite.site/#zip=...&amp;key=...">
   <div id="status" role="status" aria-live="polite"></div>
