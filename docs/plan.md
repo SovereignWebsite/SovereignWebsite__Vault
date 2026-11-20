@@ -32,7 +32,7 @@ Dinis, relayed by sites.b@SovereignWebsite.dinis on 20 Nov: private vaults for p
 
 - `tools/make-private-vault.sh <name> <folder>` seals a folder into a vault and publishes only its ciphertext, as `site/private/<random id>.zip`. The read key is never published or printed: it goes only into a link and a QR code written outside the repository, for the holder.
 - Two made-up private examples exist: Example Ceramics Studio and Example Surf School, two designs each. Their links and QR codes went to Dinis only.
-- The page now opens links to `private/` zips, follows a pasted link anywhere on the page, and reads a QR code from a dropped, pasted or chosen image where the browser has a built-in QR reader (some browsers have one, others do not, including the headless Chromium used for testing here). Otherwise the phone camera opens the link directly.
+- The page now opens links to `private/` zips, follows a pasted link anywhere on the page, and reads a QR code from a dropped, pasted or chosen image: with the browser's own BarcodeDetector where there is one, else with jsQR 1.4.0 (Apache-2.0), a pinned copy served from this site in `site/vendor/`, loaded only when needed. A phone camera opens the link directly.
 - A private zip on a public site is ciphertext only: without the key it shows nothing but sizes and timing. Anyone holding the link can open the site, so the link is the secret.
 
 ## Next

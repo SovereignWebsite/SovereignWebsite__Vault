@@ -281,12 +281,35 @@ function useLink(text) {
   location.hash = v.slice(i + 1);
   return true;
 }
-// QR codes in an image: read in the browser with the built-in BarcodeDetector, where the browser has one.
+// QR codes in an image: the browser's own BarcodeDetector where it has one, else jsQR,
+// a pinned copy served from this site (vendor/jsqr-1.4.0, Apache-2.0), loaded only when needed.
+let jsqrLoad = null;
+function loadJsQR() {
+  jsqrLoad = jsqrLoad || new Promise((ok, no) => {
+    const s = document.createElement('script');
+    s.src = 'vendor/jsqr-1.4.0/jsQR.js'; s.onload = () => ok(window.jsQR); s.onerror = () => no(new Error('Could not load the QR reader.'));
+    document.head.append(s);
+  });
+  return jsqrLoad;
+}
+async function decodeQr(file) {
+  const bmp = await createImageBitmap(file);
+  if ('BarcodeDetector' in window) {
+    try { const c = await new BarcodeDetector({ formats: ['qr_code'] }).detect(bmp); if (c.length) return c[0].rawValue; } catch (_) { /* fall back to jsQR */ }
+  }
+  const jsQR = await loadJsQR();
+  const scale = Math.min(1, 1600 / Math.max(bmp.width, bmp.height));
+  const w = Math.round(bmp.width * scale), h = Math.round(bmp.height * scale);
+  const cv = document.createElement('canvas'); cv.width = w; cv.height = h;
+  const cx = cv.getContext('2d'); cx.drawImage(bmp, 0, 0, w, h);
+  const r = jsQR(cx.getImageData(0, 0, w, h).data, w, h);
+  return r ? r.data : null;
+}
 async function readQr(file) {
-  if (!('BarcodeDetector' in window)) { status('This browser cannot read a QR code from an image. Scan it with your phone camera, or paste the link.', true); return; }
+  status('Reading the QR code...');
   try {
-    const codes = await new BarcodeDetector({ formats: ['qr_code'] }).detect(await createImageBitmap(file));
-    if (!codes.length || !useLink(codes[0].rawValue)) status('No vault link found in that image.', true);
+    const text = await decodeQr(file);
+    if (!text || !useLink(text)) status('No vault link found in that image.', true);
   } catch (err) { status('Could not read that image: ' + (err.message || err), true); }
 }
 
@@ -305,7 +328,7 @@ function init() {
     if (e.dataTransfer.files[0]) pick(e.dataTransfer.files[0]); else useLink(e.dataTransfer.getData('text/plain'));
   };
   // A pasted link opens at once; a bare key waits for a zip (or the Open button).
-  $('#key').addEventListener('input', () => { if ($('#key').value.includes('#')) useLink($('#key').value); });
+  $('#key').addEventListener('input', () => { if (/#.*key=[^&]*[0-9a-f]{64}/i.test($('#key').value)) useLink($('#key').value); });
   $('#key').addEventListener('keydown', (e) => { if (e.key === 'Enter') $('#open').click(); });
   $('#open').onclick = () => {
     const v = $('#key').value.trim();
