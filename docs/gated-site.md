@@ -1,6 +1,6 @@
 # The gated site pattern
 
-Dinis Cruz, 20 Nov 2026 (relayed by sites.b@SovereignWebsite.dinis): a site can have its public address and a well designed public page saying it is an early version, coming soon, while the site itself opens only for people holding its QR code. The example he named is Algarve Revolution.
+Dinis Cruz, 20 Nov 2026 (relayed by sites.b@SovereignWebsite.dinis): a site can have its public address and a well designed public page saying it is an early version, coming soon, while the site itself opens only for people holding its QR code. Private sites are not named, held or listed here: each lives in its own repository, and its own agent seals its vault.
 
 ## How it works
 
@@ -12,7 +12,7 @@ Dinis Cruz, 20 Nov 2026 (relayed by sites.b@SovereignWebsite.dinis): a site can 
 
 ## Making one
 
-1. Seal the site's files: `tools/make-private-vault.sh <name> <folder>`. It publishes the zip and writes the holder's link and QR code outside the repository.
+1. The site's own agent seals the site's files with a copy of `tools/make-private-vault.sh <name> <folder>`, in its own repository and container. It publishes only the ciphertext zip and writes the holder's link and QR code outside the repository, for Dinis only.
 2. Copy `site/gate/index.html` as the starting point, give it the site's own design, and point `data-vault-zip` at the zip. The page needs the element ids it uses (`key`, `open`, `file`, `status`, `loading`, `loading-msg`, `dropping`, `viewer`, `tabs`, `close`, `frame`, `viewer-title`, `viewer-meta`).
 3. Make the QR code from `https://<site>/#key=<read key>` and send it only to the person it is for.
 

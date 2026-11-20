@@ -28,7 +28,7 @@ The zip holds `bare/refs`, `bare/data` (the encrypted objects) and `manifest.jso
 
 ## Private vaults (20 Nov 2026)
 
-Dinis, relayed by sites.b@SovereignWebsite.dinis on 20 Nov: private vaults for people he has spoken to, with a QR code he can send, opened by camera, click, paste or drop; first as made-up examples, then Algarve Revolution once he says go.
+Dinis, relayed by sites.b@SovereignWebsite.dinis on 20 Nov: private vaults for people he has spoken to, with a QR code he can send, opened by camera, click, paste or drop; first as made-up examples. Real private sites are sealed by each site's own agent, in its own repository, with this public tooling; this repository and its agent never hold or name them (Dinis, 20 Nov).
 
 - `tools/make-private-vault.sh <name> <folder>` seals a folder into a vault and publishes only its ciphertext, as `site/private/<random id>.zip`. The read key is never published or printed: it goes only into a link and a QR code written outside the repository, for the holder.
 - Two made-up private examples exist: Example Ceramics Studio and Example Surf School, two designs each. Their links and QR codes went to Dinis only.
