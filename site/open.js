@@ -118,6 +118,13 @@ function resolve(from, ref) {
   }
   return parts.join('/');
 }
+// A link to a folder ("decks/", "/") means its index page.
+function pageFor(files, p) {
+  if (p == null) return null;
+  if (files.has(p)) return p;
+  for (const n of ['index.html', 'index.htm']) { const q = (p ? p.replace(/\/$/, '') + '/' : '') + n; if (files.has(q)) return q; }
+  return null;
+}
 function dataUri(files, path) {
   const f = files.get(path);
   if (!f) return null;
@@ -167,8 +174,10 @@ function render(files, path) {
     s.textContent = c ? dec.decode(c.bytes) : '';
   }
   for (const a of doc.querySelectorAll('a[href]')) {
-    const p = resolve(path, a.getAttribute('href'));
-    if (p && files.has(p)) a.setAttribute('data-vault-page', p);
+    const href = a.getAttribute('href') || '';
+    const p = /^\/$/.test(href.split(/[?#]/)[0]) ? '' : resolve(path, href);
+    const t = pageFor(files, p);
+    if (t) a.setAttribute('data-vault-page', t);
   }
   const csp = doc.createElement('meta');
   csp.setAttribute('http-equiv', 'Content-Security-Policy');
@@ -280,7 +289,17 @@ function show(v) {
   $('#viewer').hidden = false; document.body.classList.add('viewing'); loading(false);
   go(list[0].path);
 }
-function go(path) { $('#frame').srcdoc = render(current.files, path); }
+function go(path) {
+  // Pages render in the frame; any other file (a PDF, an image) is handed to the browser from memory, never fetched.
+  if (!/\.html?$/i.test(path)) {
+    const f = current.files.get(path); if (!f) return;
+    const url = URL.createObjectURL(new Blob([f.bytes], { type: typeOf(path, f) }));
+    const a = document.createElement('a'); a.href = url; a.download = path.split('/').pop(); document.body.append(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 30000);
+    return;
+  }
+  $('#frame').srcdoc = render(current.files, path);
+}
 window.addEventListener('message', (e) => {
   if (current && e.source === $('#frame').contentWindow && e.data && typeof e.data.vaultPage === 'string' && current.files.has(e.data.vaultPage)) go(e.data.vaultPage);
 });
