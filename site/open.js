@@ -287,6 +287,7 @@ function show(v) {
     tabs.append(b);
   });
   $('#viewer').hidden = false; document.body.classList.add('viewing'); loading(false);
+  if ($('#key')) $('#key').value = ''; // the key is not left on screen once the vault is open
   go(list[0].path);
 }
 function go(path) {
