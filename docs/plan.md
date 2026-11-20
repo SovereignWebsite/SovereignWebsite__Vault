@@ -35,6 +35,12 @@ Dinis, relayed by sites.b@SovereignWebsite.dinis on 20 Nov: private vaults for p
 - The page now opens links to `private/` zips, follows a pasted link anywhere on the page, and reads a QR code from a dropped, pasted or chosen image: with the browser's own BarcodeDetector where there is one, else with jsQR 1.4.0 (Apache-2.0), a pinned copy served from this site in `site/vendor/`, loaded only when needed. A phone camera opens the link directly.
 - A private zip on a public site is ciphertext only: without the key it shows nothing but sizes and timing. Anyone holding the link can open the site, so the link is the secret.
 
+## Gated sites and the opening screen (20 Nov 2026)
+
+- A centred "Opening the vault..." screen shows from the first paint when a link carries a key, and while a zip or QR image is read; the landing page stays hidden until the site shows or an error comes.
+- The whole window is the drop target for a vault zip or a QR code image.
+- The gated site pattern, a public landing page that opens a fixed private vault with its QR code: `docs/gated-site.md`, demo at `site/gate/`.
+
 ## Next
 
 1. Push the example vaults to dev.send.sgraph.ai, so `sgit clone` works too (needs an access token, see below).

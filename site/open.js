@@ -6,6 +6,10 @@
 'use strict';
 
 const $ = (s) => document.querySelector(s);
+// Files next to this script (the QR reader), wherever the page that loads it lives.
+const HERE = typeof document !== 'undefined' && document.currentScript ? new URL('.', document.currentScript.src) : null;
+// A gated site: <html data-vault-zip="private/<id>.zip"> fixes the vault, so its link and QR code carry only the key.
+const GATE_ZIP = typeof document !== 'undefined' ? document.documentElement.dataset.vaultZip || null : null;
 const enc = new TextEncoder(), dec = new TextDecoder();
 const DEFLATE_MAGIC = [0x00, 0x73, 0x67, 0x7a, 0x31]; // "\0sgz1": iv + AES-GCM(deflate(plaintext))
 
@@ -204,7 +208,9 @@ function titleOf(files, first) {
   const t = f && dec.decode(f.bytes).match(/<title>([^<]*)<\/title>/i);
   return t ? t[1].trim() : 'Vault';
 }
-function status(msg, bad) { const s = $('#status'); s.textContent = msg; s.className = bad ? 'bad' : ''; }
+function status(msg, bad) { const s = $('#status'); s.textContent = msg; s.className = bad ? 'bad' : ''; if (bad) loading(false); }
+// A centred "Opening the vault..." while a link, key, QR image or zip is being opened; the landing page stays hidden.
+function loading(on, msg) { document.documentElement.classList.toggle('loading', !!on); if (on) $('#loading-msg').textContent = msg || 'Opening the vault...'; }
 
 let current = null;
 function show(v) {
@@ -221,7 +227,7 @@ function show(v) {
     b.setAttribute('aria-pressed', i === 0 ? 'true' : 'false');
     tabs.append(b);
   });
-  $('#viewer').hidden = false; document.body.classList.add('viewing');
+  $('#viewer').hidden = false; document.body.classList.add('viewing'); loading(false);
   go(list[0].path);
 }
 function go(path) { $('#frame').srcdoc = render(current.files, path); }
@@ -230,7 +236,7 @@ window.addEventListener('message', (e) => {
 });
 
 async function openZip(buf, keyInput) {
-  status('Opening the vault in this browser...');
+  status('Opening the vault in this browser...'); loading(true);
   try {
     const keyHex = readKeyHex(keyInput);
     const v = await openVault(buf, keyHex);
@@ -242,7 +248,8 @@ async function openZip(buf, keyInput) {
   } catch (err) { status(err.message || String(err), true); }
 }
 async function refreshLocal() {
-  const ul = $('#local'), all = (await listLocal()).sort((a, b) => b.opened - a.opened);
+  const ul = $('#local'); if (!ul) return;
+  const all = (await listLocal()).sort((a, b) => b.opened - a.opened);
   ul.textContent = '';
   $('#local-empty').hidden = all.length > 0;
   for (const r of all) {
@@ -259,10 +266,11 @@ async function fromFragment() {
   const h = location.hash.slice(1);
   if (!h) return;
   history.replaceState(null, '', location.pathname + location.search); // the key leaves the address bar
-  const q = new URLSearchParams(h), key = q.get('key'), zip = q.get('zip');
+  const q = new URLSearchParams(h), key = q.get('key'), zip = q.get('zip') || GATE_ZIP;
   if (key) $('#key').value = key;
-  if (!zip) { status('Key received. Now choose or drop the vault zip.'); return; }
-  if (!/^(examples|private)\/[a-z0-9-]+\.zip$/.test(zip)) { status('Only zips published on this site can be opened from a link.', true); return; }
+  if (!zip) { loading(false); status('Key received. Now choose or drop the vault zip.'); return; }
+  loading(true);
+  if (zip !== GATE_ZIP && !/^(examples|private)\/[a-z0-9-]+\.zip$/.test(zip)) { status('Only zips published on this site can be opened from a link.', true); return; }
   try {
     const r = await fetch(zip, { credentials: 'omit' });
     if (!r.ok) throw new Error('Could not fetch ' + zip);
@@ -287,7 +295,7 @@ let jsqrLoad = null;
 function loadJsQR() {
   jsqrLoad = jsqrLoad || new Promise((ok, no) => {
     const s = document.createElement('script');
-    s.src = 'vendor/jsqr-1.4.0/jsQR.js'; s.onload = () => ok(window.jsQR); s.onerror = () => no(new Error('Could not load the QR reader.'));
+    s.src = new URL('vendor/jsqr-1.4.0/jsQR.js', HERE || location.href).href; s.onload = () => ok(window.jsQR); s.onerror = () => no(new Error('Could not load the QR reader.'));
     document.head.append(s);
   });
   return jsqrLoad;
@@ -306,7 +314,7 @@ async function decodeQr(file) {
   return r ? r.data : null;
 }
 async function readQr(file) {
-  status('Reading the QR code...');
+  status('Reading the QR code...'); loading(true, 'Reading the QR code...');
   try {
     const text = await decodeQr(file);
     if (!text || !useLink(text)) status('No vault link found in that image.', true);
@@ -320,20 +328,25 @@ function init() {
     openZip(await file.arrayBuffer(), $('#key').value);
   };
   $('#file').onchange = (e) => { pick(e.target.files[0]); e.target.value = ''; };
-  const dz = $('#drop');
-  dz.ondragover = (e) => { e.preventDefault(); dz.classList.add('over'); };
-  dz.ondragleave = () => dz.classList.remove('over');
-  dz.ondrop = (e) => {
-    e.preventDefault(); dz.classList.remove('over');
+  // The whole window is the drop target: a vault zip or a QR code image.
+  let depth = 0;
+  const over = (on) => document.documentElement.classList.toggle('dropping', on);
+  window.addEventListener('dragenter', (e) => { e.preventDefault(); depth++; over(true); });
+  window.addEventListener('dragover', (e) => { e.preventDefault(); });
+  window.addEventListener('dragleave', () => { if (--depth <= 0) { depth = 0; over(false); } });
+  window.addEventListener('drop', (e) => {
+    e.preventDefault(); depth = 0; over(false);
     if (e.dataTransfer.files[0]) pick(e.dataTransfer.files[0]); else useLink(e.dataTransfer.getData('text/plain'));
-  };
-  // A pasted link opens at once; a bare key waits for a zip (or the Open button).
+  });
   $('#key').addEventListener('input', () => { if (/#.*key=[^&]*[0-9a-f]{64}/i.test($('#key').value)) useLink($('#key').value); });
   $('#key').addEventListener('keydown', (e) => { if (e.key === 'Enter') $('#open').click(); });
   $('#open').onclick = () => {
     const v = $('#key').value.trim();
     if (!v) { status('Paste a vault link or a read key first.', true); return; }
-    if (!useLink(v)) { try { readKeyHex(v); status('Key ready. Now choose or drop the vault zip.'); } catch (err) { status(err.message, true); } }
+    if (!useLink(v)) {
+      try { readKeyHex(v); if (GATE_ZIP) location.hash = 'key=' + encodeURIComponent(v); else status('Key ready. Now choose or drop the vault zip.'); }
+      catch (err) { status(err.message, true); }
+    }
   };
   document.addEventListener('paste', (e) => {
     const f = [...(e.clipboardData && e.clipboardData.files || [])][0];

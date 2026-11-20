@@ -7,6 +7,7 @@
 <meta name="description" content="Open a website sealed in an sgit vault, in your own browser. The key never leaves this page.">
 <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; frame-src 'self' about: data:; connect-src 'self'; object-src 'none'; base-uri 'none'">
 <meta name="referrer" content="no-referrer">
+<script>if (/key=/.test(location.hash)) document.documentElement.classList.add('loading');</script>
 <style>
 :root{--bg:#fbfaf7;--fg:#1d1d1b;--muted:#5d5c57;--accent:#2f6b4f;--line:#e4e1d8;--card:#fff;--bad:#a3261b}
 @media (prefers-color-scheme:dark){:root{--bg:#141513;--fg:#ecebe6;--muted:#a8a69e;--accent:#7fc3a0;--line:#2c2d29;--card:#1c1d1a;--bad:#ff8a7a}}
@@ -42,6 +43,12 @@ code{font-size:.85em}
 .family a[aria-current="true"]{opacity:1;font-weight:600}
 .family .family-sep{margin-left:auto}
 @media (max-width:40rem){.family .family-sep{margin-left:0}}
+#loading,#dropping{position:fixed;inset:0;display:none;align-items:center;justify-content:center;flex-direction:column;gap:1rem;background:var(--bg);z-index:8;text-align:center;padding:1rem}
+.loading #loading{display:flex}.loading main{visibility:hidden}
+.spin{width:2.4rem;height:2.4rem;border:3px solid var(--line);border-top-color:var(--accent);border-radius:50%;animation:spin .9s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}@media (prefers-reduced-motion:reduce){.spin{animation:none}}
+#dropping{z-index:10;background:color-mix(in srgb,var(--bg) 88%,transparent);border:4px dashed var(--accent)}.dropping #dropping{display:flex}
+#dropping p,#loading p{font-size:1.2rem;color:var(--fg);margin:0}
 </style>
 </head>
 <body>
@@ -93,6 +100,8 @@ code{font-size:.85em}
 <footer>vault.sovereignwebsite.site · Part of the <a href="https://github.com/SovereignWebsite">SovereignWebsite</a> organisation · Source: <a href="https://github.com/SovereignWebsite/SovereignWebsite__Vault">SovereignWebsite__Vault</a> · Read why: <a href="https://newsroom.sgit.ai/articles/your-website-from-a-vault.html">Your website from a vault</a> · No cookies, no tracking.</footer>
 </main>
 
+<div id="loading" role="status" aria-live="polite"><div class="spin" aria-hidden="true"></div><p id="loading-msg">Opening the vault...</p></div>
+<div id="dropping" aria-hidden="true"><p>Drop a vault zip or a QR code image to open it</p></div>
 <div id="viewer" hidden>
   <div class="bar">
     <span><strong id="viewer-title"></strong> <span class="meta" id="viewer-meta"></span></span>
