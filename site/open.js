@@ -181,23 +181,73 @@ function render(files, path) {
 }
 
 // ---------- this device (IndexedDB) ----------
+// The person pastes or scans the key once. On the first good open, this page makes a key pair with
+// WebCrypto for its own URL (RSA-OAEP 2048, private key not extractable), encrypts the read key with the
+// public key and keeps only that ciphertext, with where the vault zip is. CryptoKey objects live in
+// IndexedDB, so the pair and the saved key survive a browser restart. Decrypted files are never stored.
+// "Forget" deletes the saved key, and the key pair with the last one.
+const SCOPE = typeof location !== 'undefined' ? location.pathname : '/';
+const FLAG = 'sv-saved:' + SCOPE; // a plain "something is saved here" flag, so the opening screen shows at once
 function db() {
   return new Promise((ok, no) => {
-    const r = indexedDB.open('sovereign-vault', 1);
-    r.onupgradeneeded = () => r.result.createObjectStore('vaults', { keyPath: 'vaultId' });
+    const r = indexedDB.open('sovereign-vault', 2);
+    r.onupgradeneeded = () => {
+      const d = r.result;
+      if (d.objectStoreNames.contains('vaults')) d.deleteObjectStore('vaults'); // version 1 kept decrypted files
+      if (!d.objectStoreNames.contains('keypair')) d.createObjectStore('keypair');
+      if (!d.objectStoreNames.contains('saved')) d.createObjectStore('saved', { keyPath: 'id' });
+    };
     r.onsuccess = () => ok(r.result); r.onerror = () => no(r.error);
   });
 }
-async function store(mode, fn) {
+async function tx(name, mode, fn) {
   const d = await db();
   return new Promise((ok, no) => {
-    const t = d.transaction('vaults', mode), r = fn(t.objectStore('vaults'));
-    t.oncomplete = () => ok(r && r.result); t.onerror = () => no(t.error);
+    const t = d.transaction(name, mode), r = fn(t.objectStore(name));
+    t.oncomplete = () => ok(r && r.result); t.onerror = () => no(t.error); t.onabort = () => no(t.error);
   });
 }
-const saveLocal = (v) => store('readwrite', (s) => s.put(v)).catch(() => null);
-const listLocal = () => store('readonly', (s) => s.getAll()).catch(() => []);
-const forgetLocal = (id) => store('readwrite', (s) => s.delete(id)).catch(() => null);
+async function keyPair(create) {
+  let p = await tx('keypair', 'readonly', (s) => s.get(SCOPE));
+  if (p || !create) return p || null;
+  p = await crypto.subtle.generateKey({ name: 'RSA-OAEP', modulusLength: 2048, publicExponent: new Uint8Array([1, 0, 1]), hash: 'SHA-256' }, false, ['encrypt', 'decrypt']);
+  await tx('keypair', 'readwrite', (s) => s.put(p, SCOPE));
+  return p;
+}
+const flag = (on) => { try { if (on) localStorage.setItem(FLAG, '1'); else localStorage.removeItem(FLAG); } catch (_) { /* storage may be blocked */ } };
+const savedId = (v, zip) => SCOPE + '|' + (zip || 'vault:' + v.vaultId);
+async function saveKey(v, keyHex, zip, buf) {
+  const pair = await keyPair(true);
+  const ct = await crypto.subtle.encrypt({ name: 'RSA-OAEP' }, pair.publicKey, enc.encode(keyHex));
+  const rec = { id: savedId(v, zip), scope: SCOPE, zip: zip || null, zipBytes: zip ? null : buf, vaultId: v.vaultId, name: v.name, ct, opened: Date.now() };
+  await tx('saved', 'readwrite', (s) => s.put(rec));
+  flag(true);
+  return rec.id;
+}
+const getSaved = (id) => tx('saved', 'readonly', (s) => s.get(id)).catch(() => null);
+const listSaved = () => tx('saved', 'readonly', (s) => s.getAll()).then((all) => all.filter((r) => r.scope === SCOPE)).catch(() => []);
+async function forget(id) {
+  await tx('saved', 'readwrite', (s) => s.delete(id)).catch(() => null);
+  if (!(await listSaved()).length) { await tx('keypair', 'readwrite', (s) => s.delete(SCOPE)).catch(() => null); flag(false); }
+}
+async function openSaved(rec) {
+  loading(true); status('Opening the vault saved on this device...');
+  try {
+    const pair = await keyPair(false);
+    if (!pair) throw new Error('The saved key is gone from this browser.');
+    const keyHex = dec.decode(await crypto.subtle.decrypt({ name: 'RSA-OAEP' }, pair.privateKey, rec.ct));
+    let buf = rec.zipBytes;
+    if (rec.zip) { const r = await fetch(rec.zip, { credentials: 'omit' }); if (!r.ok) throw new Error('Could not fetch ' + rec.zip); buf = await r.arrayBuffer(); }
+    const v = await openVault(buf, keyHex);
+    v.name = titleOf(v.files, (pages(v.files)[0] || {}).path); v.savedId = rec.id;
+    status(`Opened ${v.name} with the key saved on this device.`);
+    show(v);
+  } catch (err) {
+    await forget(rec.id);
+    status('The key saved on this device no longer opens this vault, so it has been forgotten. Scan or paste the key again. (' + (err.message || err) + ')', true);
+    refreshLocal();
+  }
+}
 
 // ---------- page ----------
 function titleOf(files, first) {
@@ -235,36 +285,41 @@ window.addEventListener('message', (e) => {
   if (current && e.source === $('#frame').contentWindow && e.data && typeof e.data.vaultPage === 'string' && current.files.has(e.data.vaultPage)) go(e.data.vaultPage);
 });
 
-async function openZip(buf, keyInput) {
+async function openZip(buf, keyInput, zip) {
   status('Opening the vault in this browser...'); loading(true);
   try {
     const keyHex = readKeyHex(keyInput);
     const v = await openVault(buf, keyHex);
     v.name = titleOf(v.files, (pages(v.files)[0] || {}).path);
-    v.opened = Date.now();
-    await saveLocal({ vaultId: v.vaultId, name: v.name, commit: v.commit, opened: v.opened, files: [...v.files].map(([p, f]) => [p, f.bytes, f.type]) });
-    status(`Opened ${v.name}. It is kept on this device until you forget it.`);
+    // Saved only after the vault has opened, so a wrong key is never kept.
+    v.savedId = await saveKey(v, keyHex, zip, buf).catch(() => null);
+    status(v.savedId ? `Opened ${v.name}. Its key is kept on this device, encrypted, until you forget it.` : `Opened ${v.name}.`);
     show(v); refreshLocal();
   } catch (err) { status(err.message || String(err), true); }
 }
 async function refreshLocal() {
   const ul = $('#local'); if (!ul) return;
-  const all = (await listLocal()).sort((a, b) => b.opened - a.opened);
+  const all = (await listSaved()).sort((a, b) => b.opened - a.opened);
   ul.textContent = '';
   $('#local-empty').hidden = all.length > 0;
   for (const r of all) {
     const li = document.createElement('li');
     const o = document.createElement('button'); o.type = 'button'; o.textContent = r.name;
-    o.onclick = () => show({ vaultId: r.vaultId, name: r.name, commit: r.commit, files: new Map(r.files.map(([p, b, t]) => [p, { bytes: b, type: t }])) });
+    o.onclick = () => openSaved(r);
     const f = document.createElement('button'); f.type = 'button'; f.className = 'quiet'; f.textContent = 'Forget';
-    f.onclick = async () => { await forgetLocal(r.vaultId); refreshLocal(); };
+    f.onclick = async () => { await forget(r.id); refreshLocal(); };
     li.append(o, ' ', f); ul.append(li);
   }
 }
 
 async function fromFragment() {
   const h = location.hash.slice(1);
-  if (!h) return;
+  if (!h) {
+    // A gated page opens its vault at once when this browser has its key saved.
+    const rec = GATE_ZIP ? await getSaved(SCOPE + '|' + GATE_ZIP) : null;
+    if (rec) openSaved(rec); else { loading(false); if (GATE_ZIP) flag(false); }
+    return;
+  }
   history.replaceState(null, '', location.pathname + location.search); // the key leaves the address bar
   const q = new URLSearchParams(h), key = q.get('key'), zip = q.get('zip') || GATE_ZIP;
   if (key) $('#key').value = key;
@@ -274,7 +329,7 @@ async function fromFragment() {
   try {
     const r = await fetch(zip, { credentials: 'omit' });
     if (!r.ok) throw new Error('Could not fetch ' + zip);
-    await openZip(await r.arrayBuffer(), key);
+    await openZip(await r.arrayBuffer(), key, zip);
   } catch (err) { status(err.message, true); }
 }
 
@@ -353,6 +408,10 @@ function init() {
     if (f) { e.preventDefault(); pick(f); return; }
     if (e.target !== $('#key') && useLink(e.clipboardData && e.clipboardData.getData('text'))) e.preventDefault();
   });
+  if ($('#forget')) $('#forget').onclick = async () => {
+    if (current && current.savedId) await forget(current.savedId);
+    $('#close').click(); status('Forgotten: this device no longer holds the key for that vault.'); refreshLocal();
+  };
   $('#close').onclick = () => { $('#viewer').hidden = true; document.body.classList.remove('viewing'); $('#frame').srcdoc = ''; current = null; };
   window.addEventListener('hashchange', fromFragment);
   refreshLocal(); fromFragment();
