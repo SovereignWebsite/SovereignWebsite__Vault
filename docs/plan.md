@@ -41,7 +41,7 @@ Dinis, relayed by sites.b@SovereignWebsite.dinis on 20 Nov: private vaults for p
 2. Open a vault straight from the server: fetch objects by id from the server instead of a zip, read only.
 3. The demo cell: a name in, designs made by agents, sealed in one vault, the link and QR code out.
 4. CI that keeps a site's vault and repository in step: on each release push the files to the vault, compare both trees, write the result to a status file the hub reads.
-5. On a yes, the factory makes the site's repository from the same vault.
+5. On a yes, the factory makes the site's repository from the same vault. Dinis, relayed 20 Nov: the vault is the preview a person approves; only after that approval does the Factory request make the public site. The same vaults will carry advanced demos for investors and others.
 
 ## Open questions for Dinis
 

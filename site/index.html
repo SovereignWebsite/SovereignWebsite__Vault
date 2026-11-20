@@ -23,7 +23,8 @@ button.quiet,#tabs button[aria-pressed=false]{background:transparent;color:var(-
 #status{min-height:1.6em;font-size:.95rem;margin-top:.8rem}#status.bad{color:var(--bad)}
 .examples{list-style:none;padding:0;display:grid;gap:1rem;grid-template-columns:repeat(auto-fit,minmax(16rem,1fr))}
 .examples li{border:1px solid var(--line);border-radius:10px;padding:1rem;background:var(--card)}
-.examples img{width:132px;height:132px;background:#fff;border-radius:6px;display:block;margin:.6rem 0}
+.row{display:flex;gap:.5rem}.row input{flex:1;min-width:0}
+.examples img{width:220px;height:220px;max-width:100%;image-rendering:pixelated;background:#fff;border-radius:6px;display:block;margin:.6rem 0}
 .examples h3{margin:0;font-size:1.05rem}.examples p{font-size:.9rem}
 #local{padding-left:1.2rem}#local li{margin:.3rem 0}
 #viewer{position:fixed;inset:0;display:flex;flex-direction:column;background:var(--bg);z-index:9}
@@ -65,7 +66,7 @@ code{font-size:.85em}
   <p><strong>Drop a vault zip or a QR code image here</strong>, paste a link anywhere on this page, or <label for="file" style="display:inline;color:var(--accent);cursor:pointer;text-decoration:underline">choose one</label>.</p>
   <input id="file" type="file" accept=".zip,application/zip,image/*" hidden>
   <label for="key">Read key, or a whole link (a vault key is refused: this page only reads)</label>
-  <input id="key" type="text" autocomplete="off" spellcheck="false" placeholder="sgit_public_read_... or https://vault.sovereignwebsite.site/#zip=...&amp;key=...">
+  <div class="row"><input id="key" type="text" autocomplete="off" spellcheck="false" placeholder="sgit_public_read_... or https://vault.sovereignwebsite.site/#zip=...&amp;key=..."><button id="open" type="button">Open</button></div>
   <div id="status" role="status" aria-live="polite"></div>
 </div>
 
@@ -74,12 +75,12 @@ code{font-size:.85em}
 <ul class="examples">
   <li><h3><a href="#zip=examples/orange.zip&amp;key=sgit_public_read_ad36e774dd064a66b85bb9657838b4e580a59096c3fa3869fd7e315004164338">Example Orange Grove</a></h3>
     <p>Three designs of one site in one vault: a made-up Algarve grower selling oranges wholesale with delivery.</p>
-    <img src="examples/orange-qr.svg" alt="QR code that opens the Example Orange Grove vault">
-    <p><a href="examples/orange.zip" download>Download the vault zip</a></p></li>
+    <img src="examples/orange-qr.png" alt="QR code that opens the Example Orange Grove vault">
+    <p><a href="examples/orange-qr.png" download>Download the QR code</a> · <a href="examples/orange.zip" download>Download the vault zip</a></p></li>
   <li><h3><a href="#zip=examples/event.zip&amp;key=sgit_public_read_27fa6c61496bceb7ebf5b196417d4c802f697dfa83a0ccb7d7b28132b4deea76">Example Community Run</a></h3>
     <p>A one-page site for a made-up local event.</p>
-    <img src="examples/event-qr.svg" alt="QR code that opens the Example Community Run vault">
-    <p><a href="examples/event.zip" download>Download the vault zip</a></p></li>
+    <img src="examples/event-qr.png" alt="QR code that opens the Example Community Run vault">
+    <p><a href="examples/event-qr.png" download>Download the QR code</a> · <a href="examples/event.zip" download>Download the vault zip</a></p></li>
 </ul>
 
 <h2>On this device</h2>

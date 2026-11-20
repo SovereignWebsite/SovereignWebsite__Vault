@@ -304,7 +304,14 @@ function init() {
     e.preventDefault(); dz.classList.remove('over');
     if (e.dataTransfer.files[0]) pick(e.dataTransfer.files[0]); else useLink(e.dataTransfer.getData('text/plain'));
   };
-  $('#key').addEventListener('change', () => useLink($('#key').value));
+  // A pasted link opens at once; a bare key waits for a zip (or the Open button).
+  $('#key').addEventListener('input', () => { if ($('#key').value.includes('#')) useLink($('#key').value); });
+  $('#key').addEventListener('keydown', (e) => { if (e.key === 'Enter') $('#open').click(); });
+  $('#open').onclick = () => {
+    const v = $('#key').value.trim();
+    if (!v) { status('Paste a vault link or a read key first.', true); return; }
+    if (!useLink(v)) { try { readKeyHex(v); status('Key ready. Now choose or drop the vault zip.'); } catch (err) { status(err.message, true); } }
+  };
   document.addEventListener('paste', (e) => {
     const f = [...(e.clipboardData && e.clipboardData.files || [])][0];
     if (f) { e.preventDefault(); pick(f); return; }
