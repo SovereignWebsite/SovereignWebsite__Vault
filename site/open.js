@@ -184,7 +184,9 @@ function render(files, path) {
   csp.setAttribute('content', "default-src 'none'; img-src data:; media-src data:; font-src data:; style-src 'unsafe-inline'; script-src 'unsafe-inline'");
   doc.head.prepend(csp);
   const nav = doc.createElement('script');
-  nav.textContent = "document.addEventListener('click',function(e){var a=e.target.closest&&e.target.closest('a');if(!a)return;var p=a.getAttribute('data-vault-page');if(p){e.preventDefault();parent.postMessage({vaultPage:p},'*');}else if(!(a.getAttribute('href')||'').startsWith('#')){e.preventDefault();}});";
+  // Inside the frame: vault pages and outside links go to the parent; '#section' links scroll in place
+  // (in a srcdoc frame a bare '#x' would otherwise load the parent page's own address into the frame).
+  nav.textContent = "document.addEventListener('click',function(e){var a=e.target.closest&&e.target.closest('a');if(!a)return;var h=a.getAttribute('href')||'',p=a.getAttribute('data-vault-page');e.preventDefault();if(p){parent.postMessage({vaultPage:p},'*');}else if(h.charAt(0)==='#'){var id=decodeURIComponent(h.slice(1)),t=id?(document.getElementById(id)||document.getElementsByName(id)[0]):null;if(t)t.scrollIntoView();else if(!id)scrollTo(0,0);}else if(/^(https?:|mailto:)/i.test(h)){parent.postMessage({vaultOpen:h},'*');}});";
   doc.body.append(nav);
   return '<!doctype html>' + doc.documentElement.outerHTML;
 }
@@ -302,7 +304,13 @@ function go(path) {
   $('#frame').srcdoc = render(current.files, path);
 }
 window.addEventListener('message', (e) => {
-  if (current && e.source === $('#frame').contentWindow && e.data && typeof e.data.vaultPage === 'string' && current.files.has(e.data.vaultPage)) go(e.data.vaultPage);
+  if (!current || e.source !== $('#frame').contentWindow || !e.data) return;
+  if (typeof e.data.vaultPage === 'string' && current.files.has(e.data.vaultPage)) go(e.data.vaultPage);
+  // An outside link from the site: only http, https and mailto, opened in a new tab with no opener.
+  if (typeof e.data.vaultOpen === 'string') {
+    let u; try { u = new URL(e.data.vaultOpen); } catch (_) { return; }
+    if (['http:', 'https:', 'mailto:'].includes(u.protocol)) window.open(u.href, '_blank', 'noopener,noreferrer');
+  }
 });
 
 async function openZip(buf, keyInput, zip) {
