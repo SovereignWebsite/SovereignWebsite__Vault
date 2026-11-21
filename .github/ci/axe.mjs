@@ -15,7 +15,7 @@ if (existsSync(join(dir, 'designs'))) for (const e of readdirSync(join(dir, 'des
 const b = await chromium.launch(); const rows = []; let bad = 0;
 for (const p of [...new Set(paths)]) {
   const ctx = await b.newContext(); const page = await ctx.newPage(); await page.goto(base + p);
-  const r = await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa']).analyze();
+  const r = await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'best-practice']).analyze();
   for (const v of r.violations) console.log(`::error::axe ${p}: ${v.id} (${v.impact}) on ${v.nodes.length} element(s): ${v.help}`);
   rows.push(`| ${p} | ${r.violations.length ? `failed (${r.violations.map((v) => v.id).join(', ')})` : 'passed'} |`); bad += r.violations.length; await ctx.close();
 }
